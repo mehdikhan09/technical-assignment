@@ -1,0 +1,391 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
+using NUnit.Framework;
+using StockReplenishment.Api.Controllers;
+using StockReplenishment.Api.DTOs;
+using StockReplenishment.Api.Services;
+using StockReplenishment.Core.Enums;
+using StockReplenishment.Tests.Helpers;
+
+namespace StockReplenishment.Tests.Controllers;
+
+[TestFixture]
+public class RequestsControllerTests
+{
+    private RequestsController    _controller = null!;
+    private IStockCheckService    _stockCheck = null!;
+    private ILogger<RequestsController> _logger = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        var db      = TestDbFactory.Create();
+        _stockCheck = Substitute.For<IStockCheckService>();
+        _logger     = Substitute.For<ILogger<RequestsController>>();
+        _controller = new RequestsController(db, _stockCheck, _logger);
+    }
+
+    // ── GET /api/requests ────────────────────────────────────────
+
+    [Test]
+    public async Task GetAll_ReturnsPagedResult()
+    {
+        var result = await _controller.GetAll(
+            null, null, null, page: 1, pageSize: 10) as OkObjectResult;
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.StatusCode, Is.EqualTo(200));
+    }
+
+    [Test]
+    public async Task GetAll_FilterByStatus_ReturnsOnlyMatchingRequests()
+    {
+        var result = await _controller.GetAll(
+            status: "Draft", null, null) as OkObjectResult;
+
+        var paged = result!.Value as PagedResult<RequestSummaryDto>;
+
+        Assert.That(paged, Is.Not.Null);
+        Assert.That(paged!.Items, Has.All.Matches<RequestSummaryDto>(r => r.Status == "Draft"));
+    }
+
+    [Test]
+    public async Task GetAll_FilterByPriority_ReturnsOnlyMatchingRequests()
+    {
+        var result = await _controller.GetAll(
+            null, priority: "Urgent", null) as OkObjectResult;
+
+        var paged = result!.Value as PagedResult<RequestSummaryDto>;
+
+        Assert.That(paged!.Items, Has.All.Matches<RequestSummaryDto>(r => r.Priority == "Urgent"));
+    }
+
+    [Test]
+    public async Task GetAll_InvalidPageSize_DefaultsToTen()
+    {
+        var result = await _controller.GetAll(
+            null, null, null, page: 1, pageSize: 999) as OkObjectResult;
+
+        var paged = result!.Value as PagedResult<RequestSummaryDto>;
+
+        Assert.That(paged!.PageSize, Is.EqualTo(10));
+    }
+
+    // ── GET /api/requests/{id} ───────────────────────────────────
+
+    [Test]
+    public async Task GetById_ExistingId_ReturnsRequest()
+    {
+        var result = await _controller.GetById(1) as OkObjectResult;
+
+        Assert.That(result,              Is.Not.Null);
+        Assert.That(result!.StatusCode,  Is.EqualTo(200));
+
+        var dto = result.Value as RequestDetailDto;
+        Assert.That(dto!.RequestNumber,  Is.EqualTo("REQ-0001"));
+    }
+
+    [Test]
+    public async Task GetById_NonExistentId_Returns404()
+    {
+        var result = await _controller.GetById(999);
+
+        Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    // ── POST /api/requests ───────────────────────────────────────
+
+    [Test]
+    public async Task Create_ValidRequest_ReturnsDraftWith201()
+    {
+        var dto = new CreateRequestDto
+        {
+            Priority        = "Normal",
+            StockLocationId = 1,
+            CreatedBy       = "worker.new",
+            LineItems       = new()
+            {
+                new CreateLineItemDto
+                {
+                    ArticleNumber     = "ART-999",
+                    Description       = "New Part",
+                    RequestedQuantity = 10
+                }
+            }
+        };
+
+        var result = await _controller.Create(dto) as CreatedAtActionResult;
+
+        Assert.That(result,             Is.Not.Null);
+        Assert.That(result!.StatusCode, Is.EqualTo(201));
+
+        var created = result.Value as RequestDetailDto;
+        Assert.That(created!.Status,    Is.EqualTo("Draft"));
+        Assert.That(created.CreatedBy,  Is.EqualTo("worker.new"));
+    }
+
+    [Test]
+    public async Task Create_InvalidLocation_Returns400()
+    {
+        var dto = new CreateRequestDto
+        {
+            Priority        = "Normal",
+            StockLocationId = 999,  // does not exist
+            CreatedBy       = "worker.new",
+            LineItems       = new()
+            {
+                new CreateLineItemDto
+                {
+                    ArticleNumber     = "ART-001",
+                    Description       = "Part",
+                    RequestedQuantity = 1
+                }
+            }
+        };
+
+        var result = await _controller.Create(dto);
+
+        Assert.That(result, Is.InstanceOf<BadRequestObjectResult>());
+    }
+
+    [Test]
+    public async Task Create_InvalidPriority_Returns400()
+    {
+        var dto = new CreateRequestDto
+        {
+            Priority        = "SuperUrgent",  // invalid
+            StockLocationId = 1,
+            CreatedBy       = "worker.new",
+            LineItems       = new()
+            {
+                new CreateLineItemDto
+                {
+                    ArticleNumber     = "ART-001",
+                    Description       = "Part",
+                    RequestedQuantity = 1
+                }
+            }
+        };
+
+        var result = await _controller.Create(dto);
+
+        Assert.That(result, Is.InstanceOf<BadRequestObjectResult>());
+    }
+
+    [Test]
+    public async Task Create_GeneratesSequentialRequestNumber()
+    {
+        var dto = new CreateRequestDto
+        {
+            Priority        = "Normal",
+            StockLocationId = 1,
+            CreatedBy       = "worker.new",
+            LineItems       = new()
+            {
+                new CreateLineItemDto
+                {
+                    ArticleNumber     = "ART-999",
+                    Description       = "Part",
+                    RequestedQuantity = 5
+                }
+            }
+        };
+
+        var result  = await _controller.Create(dto) as CreatedAtActionResult;
+        var created = result!.Value as RequestDetailDto;
+
+        // Seed has 3 requests, so next should be REQ-0004
+        Assert.That(created!.RequestNumber, Is.EqualTo("REQ-0004"));
+    }
+
+    // ── POST /api/requests/{id}/submit ───────────────────────────
+
+    [Test]
+    public async Task Submit_DraftRequest_TransitionsToSubmitted()
+    {
+        var result = await _controller.Submit(1) as OkObjectResult;
+
+        Assert.That(result,             Is.Not.Null);
+        Assert.That(result!.StatusCode, Is.EqualTo(200));
+    }
+
+    [Test]
+    public async Task Submit_DraftRequest_TriggersStockCheck()
+    {
+        await _controller.Submit(1);
+
+        // Fire-and-forget was called — NSubstitute verifies it
+        await _stockCheck.Received(1).RunCheckAsync(1);
+    }
+
+    [Test]
+    public async Task Submit_AlreadySubmittedRequest_ReturnsConflict()
+    {
+        // REQ-0002 is already Submitted
+        var result = await _controller.Submit(2);
+
+        Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+    }
+
+    [Test]
+    public async Task Submit_ApprovedRequest_ReturnsConflict()
+    {
+        // REQ-0003 is Approved
+        var result = await _controller.Submit(3);
+
+        Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+    }
+
+    [Test]
+    public async Task Submit_NonExistentRequest_Returns404()
+    {
+        var result = await _controller.Submit(999);
+
+        Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    // ── POST /api/requests/{id}/approve ──────────────────────────
+
+    [Test]
+    public async Task Approve_SubmittedRequest_TransitionsToApproved()
+    {
+        // REQ-0002 is Submitted
+        var result = await _controller.Approve(2, "supervisor.test") as OkObjectResult;
+
+        Assert.That(result,             Is.Not.Null);
+        Assert.That(result!.StatusCode, Is.EqualTo(200));
+    }
+
+    [Test]
+    public async Task Approve_DraftRequest_ReturnsConflict()
+    {
+        // REQ-0001 is Draft — cannot approve
+        var result = await _controller.Approve(1, "supervisor.test");
+
+        Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+    }
+
+    [Test]
+    public async Task Approve_AlreadyApprovedRequest_ReturnsConflict()
+    {
+        // REQ-0003 is already Approved
+        var result = await _controller.Approve(3, "supervisor.test");
+
+        Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+    }
+
+    [Test]
+    public async Task Approve_NonExistentRequest_Returns404()
+    {
+        var result = await _controller.Approve(999, "supervisor.test");
+
+        Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    // ── POST /api/requests/{id}/reject ───────────────────────────
+
+    [Test]
+    public async Task Reject_SubmittedRequest_TransitionsToRejected()
+    {
+        var dto    = new RejectRequestDto { Reason = "Duplicate request." };
+        var result = await _controller.Reject(2, dto, "supervisor.test") as OkObjectResult;
+
+        Assert.That(result,             Is.Not.Null);
+        Assert.That(result!.StatusCode, Is.EqualTo(200));
+    }
+
+    [Test]
+    public async Task Reject_DraftRequest_ReturnsConflict()
+    {
+        var dto    = new RejectRequestDto { Reason = "Some reason." };
+        var result = await _controller.Reject(1, dto, "supervisor.test");
+
+        Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+    }
+
+    [Test]
+    public async Task Reject_ApprovedRequest_ReturnsConflict()
+    {
+        var dto    = new RejectRequestDto { Reason = "Some reason." };
+        var result = await _controller.Reject(3, dto, "supervisor.test");
+
+        Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+    }
+
+    [Test]
+    public async Task Reject_NonExistentRequest_Returns404()
+    {
+        var dto    = new RejectRequestDto { Reason = "Some reason." };
+        var result = await _controller.Reject(999, dto, "supervisor.test");
+
+        Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    // ── POST /api/requests/{id}/fulfill ──────────────────────────
+
+    [Test]
+    public async Task Fulfill_ApprovedRequest_TransitionsToFulfilled()
+    {
+        var dto = new FulfillRequestDto
+        {
+            LineItems = new()
+            {
+                new FulfillLineItemDto { LineItemId = 10, FulfilledQuantity = 180 }
+            }
+        };
+
+        var result = await _controller.Fulfill(3, dto) as OkObjectResult;
+
+        Assert.That(result,             Is.Not.Null);
+        Assert.That(result!.StatusCode, Is.EqualTo(200));
+    }
+
+    [Test]
+    public async Task Fulfill_ApprovedRequest_SavesFulfilledQuantities()
+    {
+        var dto = new FulfillRequestDto
+        {
+            LineItems = new()
+            {
+                new FulfillLineItemDto { LineItemId = 10, FulfilledQuantity = 150 }
+            }
+        };
+
+        await _controller.Fulfill(3, dto);
+
+        // Re-fetch and verify the quantity was persisted
+        var detail = await _controller.GetById(3) as OkObjectResult;
+        var request = detail!.Value as RequestDetailDto;
+
+        Assert.That(request!.LineItems.First(li => li.Id == 10).FulfilledQuantity,
+            Is.EqualTo(150));
+    }
+
+    [Test]
+    public async Task Fulfill_SubmittedRequest_ReturnsConflict()
+    {
+        var dto    = new FulfillRequestDto { LineItems = new() };
+        var result = await _controller.Fulfill(2, dto);
+
+        Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+    }
+
+    [Test]
+    public async Task Fulfill_DraftRequest_ReturnsConflict()
+    {
+        var dto    = new FulfillRequestDto { LineItems = new() };
+        var result = await _controller.Fulfill(1, dto);
+
+        Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+    }
+
+    [Test]
+    public async Task Fulfill_NonExistentRequest_Returns404()
+    {
+        var dto    = new FulfillRequestDto { LineItems = new() };
+        var result = await _controller.Fulfill(999, dto);
+
+        Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+    }
+}

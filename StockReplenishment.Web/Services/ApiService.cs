@@ -1,0 +1,304 @@
+using System.Net.Http.Json;
+
+namespace StockReplenishment.Web.Services;
+
+// ── Response models (match API DTOs) ─────────────────────────────
+
+public record LocationDto(int Id, string Code, string Description);
+
+public record PriorityDto(int Id, string Name, string? Description, int DisplayOrder, bool IsActive);
+
+public record RequestSummaryDto(
+    int Id, string RequestNumber, string Status, string Priority,
+    string LocationCode, string CreatedBy, DateTime CreatedAt,
+    int LineItemCount, bool? StockCheckPassed);
+
+public record RequestDetailDto(
+    int Id, string RequestNumber, string Status, string Priority,
+    int StockLocationId, string LocationCode, string LocationDescription,
+    string CreatedBy, DateTime CreatedAt,
+    DateTime? SubmittedAt, DateTime? ReviewedAt, DateTime? FulfilledAt,
+    string? ReviewedBy, string? RejectionReason, string? Notes,
+    bool? StockCheckPassed, string? StockCheckMessage,
+    List<LineItemDto> LineItems);
+
+public record LineItemDto(
+    int Id, string ArticleNumber, string Description,
+    int RequestedQuantity, int? FulfilledQuantity);
+
+public record PagedResult<T>(
+    List<T> Items, int TotalCount, int Page, int PageSize, int TotalPages);
+
+// ── Request bodies ────────────────────────────────────────────────
+
+public class CreateRequestModel
+{
+    public string Priority { get; set; } = "Normal";
+    public int StockLocationId { get; set; }
+    public string CreatedBy { get; set; } = string.Empty;
+    public string? Notes { get; set; }
+    public List<CreateLineItemModel> LineItems { get; set; } = new();
+}
+
+public class CreateLineItemModel
+{
+    public string ArticleNumber { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public int RequestedQuantity { get; set; }
+}
+
+public class RejectModel { public string Reason { get; set; } = string.Empty; }
+
+public class FulfillModel
+{
+    public List<FulfillLineItemModel> LineItems { get; set; } = new();
+}
+
+public class FulfillLineItemModel
+{
+    public int LineItemId { get; set; }
+    public int FulfilledQuantity { get; set; }
+}
+
+// ── Service ───────────────────────────────────────────────────────
+
+public class ApiService
+{
+    private readonly HttpClient _http;
+    private readonly ILogger<ApiService> _logger;
+
+    public ApiService(HttpClient http, ILogger<ApiService> logger)
+    {
+        _http = http;
+        _logger = logger;
+    }
+
+    public async Task<List<LocationDto>> GetLocationsAsync()
+    {
+        try
+        {
+            var result = await _http.GetFromJsonAsync<List<LocationDto>>("api/stocklocations");
+            return result ?? new();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error while fetching stock locations");
+            throw new ApplicationException("Failed to load stock locations. Please check your connection and try again.", ex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while fetching stock locations");
+            throw new ApplicationException("An unexpected error occurred while loading stock locations.", ex);
+        }
+    }
+
+    public async Task<List<PriorityDto>> GetPrioritiesAsync()
+    {
+        try
+        {
+            var result = await _http.GetFromJsonAsync<List<PriorityDto>>("api/priorities");
+            return result ?? new();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error while fetching priorities");
+            throw new ApplicationException("Failed to load priorities. Please check your connection and try again.", ex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while fetching priorities");
+            throw new ApplicationException("An unexpected error occurred while loading priorities.", ex);
+        }
+    }
+
+    public async Task<PagedResult<RequestSummaryDto>?> GetRequestsAsync(
+        string? status = null, string? priority = null,
+        int? locationId = null, int page = 1, int pageSize = 10)
+    {
+        try
+        {
+            var query = $"api/requests?page={page}&pageSize={pageSize}";
+            if (!string.IsNullOrEmpty(status))   query += $"&status={status}";
+            if (!string.IsNullOrEmpty(priority)) query += $"&priority={priority}";
+            if (locationId.HasValue)             query += $"&locationId={locationId}";
+
+            return await _http.GetFromJsonAsync<PagedResult<RequestSummaryDto>>(query);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error while fetching requests");
+            throw new ApplicationException("Failed to load requests. Please check your connection and try again.", ex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while fetching requests");
+            throw new ApplicationException("An unexpected error occurred while loading requests.", ex);
+        }
+    }
+
+    public async Task<RequestDetailDto?> GetRequestByIdAsync(int id)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<RequestDetailDto>($"api/requests/{id}");
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _logger.LogWarning("Request {RequestId} not found", id);
+            return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error while fetching request {RequestId}", id);
+            throw new ApplicationException($"Failed to load request {id}. Please check your connection and try again.", ex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while fetching request {RequestId}", id);
+            throw new ApplicationException($"An unexpected error occurred while loading request {id}.", ex);
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> CreateRequestAsync(CreateRequestModel model)
+    {
+        try
+        {
+            var response = await _http.PostAsJsonAsync("api/requests", model);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Successfully created request");
+                return (true, null);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to create request: {StatusCode} - {Error}",
+                response.StatusCode, errorContent);
+            return (false, $"Server returned {response.StatusCode}. {errorContent}");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error while creating request");
+            return (false, "Network error. Please check your connection and try again.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while creating request");
+            return (false, "An unexpected error occurred. Please try again.");
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> SubmitAsync(int id)
+    {
+        try
+        {
+            var response = await _http.PostAsync($"api/requests/{id}/submit", null);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Successfully submitted request {RequestId}", id);
+                return (true, null);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to submit request {RequestId}: {StatusCode} - {Error}",
+                id, response.StatusCode, errorContent);
+            return (false, $"Server returned {response.StatusCode}. {errorContent}");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error while submitting request {RequestId}", id);
+            return (false, "Network error. Please check your connection and try again.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while submitting request {RequestId}", id);
+            return (false, "An unexpected error occurred. Please try again.");
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> ApproveAsync(int id)
+    {
+        try
+        {
+            var response = await _http.PostAsync($"api/requests/{id}/approve?reviewedBy=supervisor", null);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Successfully approved request {RequestId}", id);
+                return (true, null);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to approve request {RequestId}: {StatusCode} - {Error}",
+                id, response.StatusCode, errorContent);
+            return (false, $"Server returned {response.StatusCode}. {errorContent}");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error while approving request {RequestId}", id);
+            return (false, "Network error. Please check your connection and try again.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while approving request {RequestId}", id);
+            return (false, "An unexpected error occurred. Please try again.");
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> RejectAsync(int id, string reason)
+    {
+        try
+        {
+            var response = await _http.PostAsJsonAsync(
+                $"api/requests/{id}/reject?reviewedBy=supervisor",
+                new RejectModel { Reason = reason });
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Successfully rejected request {RequestId}", id);
+                return (true, null);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to reject request {RequestId}: {StatusCode} - {Error}",
+                id, response.StatusCode, errorContent);
+            return (false, $"Server returned {response.StatusCode}. {errorContent}");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error while rejecting request {RequestId}", id);
+            return (false, "Network error. Please check your connection and try again.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while rejecting request {RequestId}", id);
+            return (false, "An unexpected error occurred. Please try again.");
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> FulfillAsync(int id, FulfillModel model)
+    {
+        try
+        {
+            var response = await _http.PostAsJsonAsync($"api/requests/{id}/fulfill", model);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Successfully fulfilled request {RequestId}", id);
+                return (true, null);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to fulfill request {RequestId}: {StatusCode} - {Error}",
+                id, response.StatusCode, errorContent);
+            return (false, $"Server returned {response.StatusCode}. {errorContent}");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP error while fulfilling request {RequestId}", id);
+            return (false, "Network error. Please check your connection and try again.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while fulfilling request {RequestId}", id);
+            return (false, "An unexpected error occurred. Please try again.");
+        }
+    }
+}

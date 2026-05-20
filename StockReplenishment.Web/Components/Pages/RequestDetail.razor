@@ -1,0 +1,303 @@
+@page "/requests/{Id:int}"
+@rendermode InteractiveServer
+@inject ApiService Api
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@implements IDisposable
+
+@if (_request is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudText Typo="Typo.h5">@_request.RequestNumber</MudText>
+        <MudChip T="string" Color="@StatusColor(_request.Status)">@_request.Status</MudChip>
+        <MudChip T="string" Color="@PriorityColor(_request.Priority)">@_request.Priority</MudChip>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" Href="/requests"
+                   StartIcon="@Icons.Material.Filled.ArrowBack">Back</MudButton>
+    </MudStack>
+
+    <MudGrid>
+        <!-- ── Details Card ── -->
+        <MudItem xs="12" md="5">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudText Typo="Typo.h6" Class="mb-3">Details</MudText>
+                <MudText><b>Location:</b> @_request.LocationCode — @_request.LocationDescription</MudText>
+                <MudText><b>Created By:</b> @_request.CreatedBy</MudText>
+                <MudText><b>Created:</b> @_request.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudText>
+
+                @if (_request.SubmittedAt.HasValue)
+                {
+                    <MudText><b>Submitted:</b> @_request.SubmittedAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudText>
+                }
+                @if (_request.ReviewedAt.HasValue)
+                {
+                    <MudText><b>Reviewed By:</b> @_request.ReviewedBy</MudText>
+                    <MudText><b>Reviewed:</b> @_request.ReviewedAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudText>
+                }
+                @if (_request.FulfilledAt.HasValue)
+                {
+                    <MudText><b>Fulfilled:</b> @_request.FulfilledAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudText>
+                }
+                @if (!string.IsNullOrEmpty(_request.Notes))
+                {
+                    <MudText Class="mt-2"><b>Notes:</b> @_request.Notes</MudText>
+                }
+                @if (!string.IsNullOrEmpty(_request.RejectionReason))
+                {
+                    <MudAlert Severity="Severity.Error" Class="mt-2">
+                        <b>Rejection Reason:</b> @_request.RejectionReason
+                    </MudAlert>
+                }
+            </MudPaper>
+
+            <!-- ── Stock Check Card ── -->
+            @if (_request.Status != "Draft")
+            {
+                <MudPaper Class="pa-4 mt-4" Elevation="1">
+                    <MudText Typo="Typo.h6" Class="mb-2">Stock Availability Check</MudText>
+                    @if (_request.StockCheckPassed is null)
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center">
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                            <MudText Class="ml-2">Checking stock availability...</MudText>
+                        </MudStack>
+                    }
+                    else if (_request.StockCheckPassed == true)
+                    {
+                        <MudAlert Severity="Severity.Success">@_request.StockCheckMessage</MudAlert>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Warning">@_request.StockCheckMessage</MudAlert>
+                    }
+                </MudPaper>
+            }
+        </MudItem>
+
+        <!-- ── Line Items ── -->
+        <MudItem xs="12" md="7">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudText Typo="Typo.h6" Class="mb-3">Line Items</MudText>
+                <MudTable Items="_request.LineItems" Dense="true" Hover="false">
+                    <HeaderContent>
+                        <MudTh>Article No.</MudTh>
+                        <MudTh>Description</MudTh>
+                        <MudTh>Requested</MudTh>
+                        <MudTh>Fulfilled</MudTh>
+                        @if (_request.Status == "Approved")
+                        {
+                            <MudTh>Set Fulfilled</MudTh>
+                        }
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.ArticleNumber</MudTd>
+                        <MudTd>@context.Description</MudTd>
+                        <MudTd>@context.RequestedQuantity</MudTd>
+                        <MudTd>@(context.FulfilledQuantity?.ToString() ?? "—")</MudTd>
+                        @if (_request.Status == "Approved")
+                        {
+                            <MudTd>
+                                <MudNumericField T="int"
+                                    Value="@GetFulfillQty(context.Id)"
+                                    ValueChanged="@(v => SetFulfillQty(context.Id, v))"
+                                    Min="0" Style="width:80px" />
+                            </MudTd>
+                        }
+                    </RowTemplate>
+                </MudTable>
+            </MudPaper>
+
+            <!-- ── Action Buttons ── -->
+            <MudPaper Class="pa-4 mt-4" Elevation="1">
+                <MudText Typo="Typo.h6" Class="mb-3">Actions</MudText>
+
+                @if (_request.Status == "Draft")
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               OnClick="SubmitAsync" Disabled="_busy">
+                        Submit for Approval
+                    </MudButton>
+                }
+
+                @if (_request.Status == "Submitted")
+                {
+                    <MudStack Row="true" Spacing="2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Success"
+                                   OnClick="ApproveAsync" Disabled="_busy">
+                            Approve
+                        </MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Error"
+                                   OnClick="() => _showRejectBox = true" Disabled="_busy">
+                            Reject
+                        </MudButton>
+                    </MudStack>
+
+                    @if (_showRejectBox)
+                    {
+                        <MudStack Class="mt-3">
+                            <MudTextField Label="Rejection Reason" @bind-Value="_rejectionReason"
+                                          Lines="2" Required="true" />
+                            <MudStack Row="true" Spacing="2">
+                                <MudButton Variant="Variant.Filled" Color="Color.Error"
+                                           OnClick="RejectAsync" Disabled="_busy">
+                                    Confirm Rejection
+                                </MudButton>
+                                <MudButton Variant="Variant.Text"
+                                           OnClick="() => _showRejectBox = false">
+                                    Cancel
+                                </MudButton>
+                            </MudStack>
+                        </MudStack>
+                    }
+                }
+
+                @if (_request.Status == "Approved")
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Secondary"
+                               OnClick="FulfillAsync" Disabled="_busy">
+                        Mark as Fulfilled
+                    </MudButton>
+                }
+
+                @if (_request.Status is "Rejected" or "Fulfilled")
+                {
+                    <MudText Color="Color.Secondary">No further actions available.</MudText>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private RequestDetailDto? _request;
+    private bool _busy;
+    private bool _showRejectBox;
+    private string _rejectionReason = string.Empty;
+    private Dictionary<int, int> _fulfillQtys = new();
+    private CancellationTokenSource _pollCts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+
+        // Start polling only if stock check is still pending
+        if (_request?.Status == "Submitted" && _request.StockCheckPassed is null)
+            _ = PollStockCheckAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _request = await Api.GetRequestByIdAsync(Id);
+
+        // Pre-populate fulfill quantities from current values
+        if (_request is not null)
+        {
+            foreach (var item in _request.LineItems)
+                _fulfillQtys.TryAdd(item.Id, item.FulfilledQuantity ?? item.RequestedQuantity);
+        }
+    }
+
+    // ── Poll every 2s until StockCheckPassed is no longer null ──
+    private async Task PollStockCheckAsync()
+    {
+        try
+        {
+            while (!_pollCts.Token.IsCancellationRequested)
+            {
+                await Task.Delay(2000, _pollCts.Token);
+                _request = await Api.GetRequestByIdAsync(Id);
+                await InvokeAsync(StateHasChanged);
+
+                if (_request?.StockCheckPassed is not null)
+                    break;
+            }
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private int  GetFulfillQty(int lineItemId) =>
+        _fulfillQtys.TryGetValue(lineItemId, out var q) ? q : 0;
+
+    private void SetFulfillQty(int lineItemId, int qty) =>
+        _fulfillQtys[lineItemId] = qty;
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        var (success, error) = await Api.SubmitAsync(Id);
+        if (success)
+        {
+            Snackbar.Add("Request submitted. Stock check running...", Severity.Info);
+            await LoadAsync();
+            _ = PollStockCheckAsync();   // start polling
+        }
+        else Snackbar.Add($"Error: {error}", Severity.Error);
+        _busy = false;
+    }
+
+    private async Task ApproveAsync()
+    {
+        _busy = true;
+        var (success, error) = await Api.ApproveAsync(Id);
+        if (success) { Snackbar.Add("Request approved.", Severity.Success); await LoadAsync(); }
+        else Snackbar.Add($"Error: {error}", Severity.Error);
+        _busy = false;
+    }
+
+    private async Task RejectAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_rejectionReason))
+        {
+            Snackbar.Add("Please enter a rejection reason.", Severity.Warning);
+            return;
+        }
+        _busy = true;
+        var (success, error) = await Api.RejectAsync(Id, _rejectionReason);
+        if (success) { Snackbar.Add("Request rejected.", Severity.Error); await LoadAsync(); _showRejectBox = false; }
+        else Snackbar.Add($"Error: {error}", Severity.Error);
+        _busy = false;
+    }
+
+    private async Task FulfillAsync()
+    {
+        _busy = true;
+        var model = new FulfillModel
+        {
+            LineItems = _fulfillQtys
+                .Select(kv => new FulfillLineItemModel
+                    { LineItemId = kv.Key, FulfilledQuantity = kv.Value })
+                .ToList()
+        };
+        var (success, error) = await Api.FulfillAsync(Id, model);
+        if (success) { Snackbar.Add("Request fulfilled.", Severity.Success); await LoadAsync(); }
+        else Snackbar.Add($"Error: {error}", Severity.Error);
+        _busy = false;
+    }
+
+    // Cancel polling when component is destroyed
+    public void Dispose() => _pollCts.Cancel();
+
+    private static Color StatusColor(string status) => status switch
+    {
+        "Draft"     => Color.Default,
+        "Submitted" => Color.Info,
+        "Approved"  => Color.Success,
+        "Rejected"  => Color.Error,
+        "Fulfilled" => Color.Secondary,
+        _           => Color.Default
+    };
+
+    private static Color PriorityColor(string priority) => priority switch
+    {
+        "Urgent" => Color.Error,
+        "Normal" => Color.Warning,
+        "Low"    => Color.Success,
+        _        => Color.Default
+    };
+}

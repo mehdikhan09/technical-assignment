@@ -1,0 +1,83 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using StockReplenishment.Api.Data;
+using StockReplenishment.Api.DTOs;
+
+namespace StockReplenishment.Api.Controllers;
+
+[Route("api/[controller]")]
+[ApiController]
+public class PrioritiesController : ControllerBase
+{
+    private readonly AppDbContext _context;
+    private readonly ILogger<PrioritiesController> _logger;
+
+    public PrioritiesController(AppDbContext context, ILogger<PrioritiesController> logger)
+    {
+        _context = context;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Get all active priorities ordered by display order
+    /// </summary>
+    [HttpGet]
+    public async Task<ActionResult<List<PriorityDto>>> GetAll()
+    {
+        try
+        {
+            var priorities = await _context.Priorities
+                .Where(p => p.IsActive)
+                .OrderBy(p => p.DisplayOrder)
+                .Select(p => new PriorityDto(
+                    p.Id,
+                    p.Name,
+                    p.Description,
+                    p.DisplayOrder,
+                    p.IsActive
+                ))
+                .ToListAsync();
+
+            return Ok(priorities);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving priorities");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Get priority by ID
+    /// </summary>
+    [HttpGet("{id:int}")]
+    public async Task<ActionResult<PriorityDto>> GetById(int id)
+    {
+        try
+        {
+            if (id <= 0)
+                return BadRequest(new { message = "Invalid priority ID." });
+
+            var priority = await _context.Priorities.FindAsync(id);
+
+            if (priority == null)
+            {
+                _logger.LogWarning("Priority {PriorityId} not found", id);
+                return NotFound(new { message = $"Priority {id} not found." });
+            }
+
+            return Ok(new PriorityDto(
+                priority.Id,
+                priority.Name,
+                priority.Description,
+                priority.DisplayOrder,
+                priority.IsActive
+            ));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving priority {PriorityId}", id);
+            throw;
+        }
+    }
+}

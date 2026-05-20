@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="StockReplenishment.Api/StockReplenishment.Api.csproj" />
+  <Project Path="StockReplenishment.Core/StockReplenishment.Core.csproj" />
+  <Project Path="StockReplenishment.Tests/StockReplenishment.Tests.csproj" />
+  <Project Path="StockReplenishment.Web/StockReplenishment.Web.csproj" />
+</Solution>
