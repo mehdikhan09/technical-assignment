@@ -1,0 +1,144 @@
+﻿@page "/requests"
+@rendermode InteractiveServer
+@inject ApiService Api
+@inject NavigationManager Nav
+
+<MudText Typo="Typo.h5" Class="mb-4">Stock Replenishment Requests</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudGrid>
+        <MudItem xs="12" sm="3">
+            <MudSelect T="string" Label="Status" Value="_filterStatus"
+                       ValueChanged="OnStatusChanged" Clearable="true">
+                @foreach (var s in _statuses)
+                {
+                    <MudSelectItem Value="@s">@s</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="3">
+            <MudSelect T="string" Label="Priority" Value="_filterPriority"
+                       ValueChanged="OnPriorityChanged" Clearable="true">
+                @foreach (var p in _priorities)
+                {
+                    <MudSelectItem Value="@p">@p</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="3">
+            <MudSelect T="int?" Label="Location" Value="_filterLocationId"
+                       ValueChanged="OnLocationChanged" Clearable="true">
+                @foreach (var l in _locations)
+                {
+                    <MudSelectItem T="int?" Value="@((int?)l.Id)">@l.Code</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="3" Class="d-flex align-center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Href="/requests/create" StartIcon="@Icons.Material.Filled.Add">
+                New Request
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (_result is not null)
+{
+    <MudTable Items="_result.Items" Hover="true" Dense="true"
+              OnRowClick="@(row => Nav.NavigateTo($"/requests/{row.Item.Id}"))">
+        <HeaderContent>
+            <MudTh>Number</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Priority</MudTh>
+            <MudTh>Location</MudTh>
+            <MudTh>Created By</MudTh>
+            <MudTh>Created At</MudTh>
+            <MudTh>Items</MudTh>
+            <MudTh>Stock Check</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.RequestNumber</MudTd>
+            <MudTd><MudChip T="string" Color="@StatusColor(context.Status)" Size="Size.Small">@context.Status</MudChip></MudTd>
+            <MudTd><MudChip T="string" Color="@PriorityColor(context.Priority)" Size="Size.Small">@context.Priority</MudChip></MudTd>
+            <MudTd>@context.LocationCode</MudTd>
+            <MudTd>@context.CreatedBy</MudTd>
+            <MudTd>@context.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudTd>
+            <MudTd>@context.LineItemCount</MudTd>
+            <MudTd>@StockCheckLabel(context.StockCheckPassed)</MudTd>
+        </RowTemplate>
+    </MudTable>
+
+    <MudStack Row="true" Class="mt-4" AlignItems="AlignItems.Center">
+        <MudText>Page @_result.Page of @_result.TotalPages (@_result.TotalCount total)</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft"
+                       Disabled="_result.Page <= 1"
+                       OnClick="PreviousPage" />
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronRight"
+                       Disabled="_result.Page >= _result.TotalPages"
+                       OnClick="NextPage" />
+    </MudStack>
+}
+
+@code {
+    private PagedResult<RequestSummaryDto>? _result;
+    private List<LocationDto> _locations = new();
+    private bool _loading = true;
+
+    private string? _filterStatus;
+    private string? _filterPriority;
+    private int? _filterLocationId;
+    private int _page = 1;
+
+    private readonly string[] _statuses  = { "Draft", "Submitted", "Approved", "Rejected", "Fulfilled" };
+    private readonly string[] _priorities = { "Low", "Normal", "Urgent" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _locations = await Api.GetLocationsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _result  = await Api.GetRequestsAsync(_filterStatus, _filterPriority, _filterLocationId, _page);
+        _loading = false;
+    }
+
+    private async Task OnStatusChanged(string? val)   { _filterStatus = val;     _page = 1; await LoadAsync(); }
+    private async Task OnPriorityChanged(string? val) { _filterPriority = val;   _page = 1; await LoadAsync(); }
+    private async Task OnLocationChanged(int? val)    { _filterLocationId = val; _page = 1; await LoadAsync(); }
+    private async Task PreviousPage() { _page--; await LoadAsync(); }
+    private async Task NextPage()     { _page++; await LoadAsync(); }
+
+    private static Color StatusColor(string status) => status switch
+    {
+        "Draft"     => Color.Default,
+        "Submitted" => Color.Info,
+        "Approved"  => Color.Success,
+        "Rejected"  => Color.Error,
+        "Fulfilled" => Color.Secondary,
+        _           => Color.Default
+    };
+
+    private static Color PriorityColor(string priority) => priority switch
+    {
+        "Urgent" => Color.Error,
+        "Normal" => Color.Warning,
+        "Low"    => Color.Success,
+        _        => Color.Default
+    };
+
+    private static string StockCheckLabel(bool? passed) => passed switch
+    {
+        true  => "✅ Passed",
+        false => "❌ Failed",
+        null  => "⏳ Pending"
+    };
+}

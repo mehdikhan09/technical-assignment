@@ -1,0 +1,161 @@
+﻿using StockReplenishment.Core.Enums;
+using StockReplenishment.Core.Models;
+
+namespace StockReplenishment.Api.Data;
+
+public static class SeedData
+{
+    public static void Initialize(AppDbContext context)
+    {
+        // Avoid re-seeding if data already exists
+        if (context.StockLocations.Any()) return;
+
+        // ── Locations ──────────────────────────────────────────
+        var locations = new List<StockLocation>
+        {
+            new() { Id = 1, Code = "LINE-A1", Description = "Assembly Line A, Station 1" },
+            new() { Id = 2, Code = "LINE-A2", Description = "Assembly Line A, Station 2" },
+            new() { Id = 3, Code = "LINE-B1", Description = "Assembly Line B, Station 1" },
+            new() { Id = 4, Code = "WELD-01", Description = "Welding Bay 01" },
+            new() { Id = 5, Code = "PAINT-01", Description = "Paint Shop, Station 1" },
+            new() { Id = 6, Code = "LINE-C1", Description = "Assembly Line C, Station 1" },
+            new() { Id = 7, Code = "LINE-C2", Description = "Assembly Line C, Station 2" },
+            new() { Id = 8, Code = "WELD-02", Description = "Welding Bay 02" },
+            new() { Id = 9, Code = "QC-01", Description = "Quality Control Station 1" },
+            new() { Id = 10, Code = "PACK-01", Description = "Packaging Area 1" }
+        };
+        context.StockLocations.AddRange(locations);
+        context.SaveChanges();
+
+        // ── Requests ───────────────────────────────────────────
+        var requests = new List<ReplenishmentRequest>
+        {
+            // 1. Draft request
+            new()
+            {
+                Id = 1,
+                RequestNumber = "REQ-0001",
+                Status = RequestStatus.Draft,
+                Priority = RequestPriority.Normal,
+                StockLocationId = 1,
+                CreatedBy = "worker.anna",
+                CreatedAt = DateTime.UtcNow.AddDays(-2),
+                Notes = "Running low on bolts at station 1",
+                LineItems = new List<RequestLineItem>
+                {
+                    new() { ArticleNumber = "ART-10045", Description = "M8 Hex Bolt",         RequestedQuantity = 500 },
+                    new() { ArticleNumber = "ART-10046", Description = "M8 Hex Nut",           RequestedQuantity = 500 }
+                }
+            },
+
+            // 2. Submitted — stock check pending
+            new()
+            {
+                Id = 2,
+                RequestNumber = "REQ-0002",
+                Status = RequestStatus.Submitted,
+                Priority = RequestPriority.Urgent,
+                StockLocationId = 2,
+                CreatedBy = "worker.ben",
+                CreatedAt = DateTime.UtcNow.AddDays(-1),
+                SubmittedAt = DateTime.UtcNow.AddHours(-3),
+                StockCheckPassed = null,   // still processing
+                StockCheckMessage = "Stock check in progress...",
+                LineItems = new List<RequestLineItem>
+                {
+                    new() { ArticleNumber = "ART-20011", Description = "Bearing Assembly 6204", RequestedQuantity = 20 }
+                }
+            },
+
+            // 3. Submitted — stock check passed
+            new()
+            {
+                Id = 3,
+                RequestNumber = "REQ-0003",
+                Status = RequestStatus.Submitted,
+                Priority = RequestPriority.Normal,
+                StockLocationId = 3,
+                CreatedBy = "worker.chen",
+                CreatedAt = DateTime.UtcNow.AddDays(-1),
+                SubmittedAt = DateTime.UtcNow.AddHours(-2),
+                StockCheckPassed = true,
+                StockCheckMessage = "All items available in warehouse stock.",
+                LineItems = new List<RequestLineItem>
+                {
+                    new() { ArticleNumber = "ART-30055", Description = "Welding Wire 1.2mm",   RequestedQuantity = 10 },
+                    new() { ArticleNumber = "ART-30056", Description = "Welding Shield Gas",   RequestedQuantity = 5  }
+                }
+            },
+
+            // 4. Approved
+            new()
+            {
+                Id = 4,
+                RequestNumber = "REQ-0004",
+                Status = RequestStatus.Approved,
+                Priority = RequestPriority.Low,
+                StockLocationId = 4,
+                CreatedBy = "worker.diana",
+                CreatedAt = DateTime.UtcNow.AddDays(-3),
+                SubmittedAt = DateTime.UtcNow.AddDays(-2),
+                ReviewedAt = DateTime.UtcNow.AddDays(-1),
+                ReviewedBy = "supervisor.mike",
+                StockCheckPassed = true,
+                StockCheckMessage = "All items available in warehouse stock.",
+                LineItems = new List<RequestLineItem>
+                {
+                    new() { ArticleNumber = "ART-40021", Description = "Safety Gloves (L)",    RequestedQuantity = 50 },
+                    new() { ArticleNumber = "ART-40022", Description = "Safety Goggles",       RequestedQuantity = 20 }
+                }
+            },
+
+            // 5. Rejected
+            new()
+            {
+                Id = 5,
+                RequestNumber = "REQ-0005",
+                Status = RequestStatus.Rejected,
+                Priority = RequestPriority.Normal,
+                StockLocationId = 1,
+                CreatedBy = "worker.anna",
+                CreatedAt = DateTime.UtcNow.AddDays(-4),
+                SubmittedAt = DateTime.UtcNow.AddDays(-3),
+                ReviewedAt = DateTime.UtcNow.AddDays(-2),
+                ReviewedBy = "supervisor.mike",
+                RejectionReason = "Duplicate request — REQ-0001 already covers these materials.",
+                StockCheckPassed = true,
+                StockCheckMessage = "All items available in warehouse stock.",
+                LineItems = new List<RequestLineItem>
+                {
+                    new() { ArticleNumber = "ART-10045", Description = "M8 Hex Bolt",         RequestedQuantity = 200 }
+                }
+            },
+
+            // 6. Fulfilled
+            new()
+            {
+                Id = 6,
+                RequestNumber = "REQ-0006",
+                Status = RequestStatus.Fulfilled,
+                Priority = RequestPriority.Urgent,
+                StockLocationId = 5,
+                CreatedBy = "worker.erik",
+                CreatedAt = DateTime.UtcNow.AddDays(-5),
+                SubmittedAt = DateTime.UtcNow.AddDays(-4),
+                ReviewedAt = DateTime.UtcNow.AddDays(-3),
+                FulfilledAt = DateTime.UtcNow.AddDays(-1),
+                ReviewedBy = "supervisor.sarah",
+                StockCheckPassed = true,
+                StockCheckMessage = "All items available in warehouse stock.",
+                LineItems = new List<RequestLineItem>
+                {
+                    new() { ArticleNumber = "ART-50033", Description = "Primer Coat Paint 5L", RequestedQuantity = 8,  FulfilledQuantity = 8  },
+                    new() { ArticleNumber = "ART-50034", Description = "Top Coat Paint 5L",    RequestedQuantity = 6,  FulfilledQuantity = 5  }
+                }
+            }
+        };
+
+        context.Requests.AddRange(requests);
+        context.SaveChanges();
+    }
+}

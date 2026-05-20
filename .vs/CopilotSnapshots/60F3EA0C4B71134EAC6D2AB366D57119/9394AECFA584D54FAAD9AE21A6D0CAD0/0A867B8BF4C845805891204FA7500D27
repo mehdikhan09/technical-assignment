@@ -1,0 +1,59 @@
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using StockReplenishment.Api.Data;
+using StockReplenishment.Api.DTOs;
+
+namespace StockReplenishment.Api.Controllers;
+
+[Route("api/[controller]")]
+[ApiController]
+public class PrioritiesController : ControllerBase
+{
+    private readonly AppDbContext _context;
+
+    public PrioritiesController(AppDbContext context)
+    {
+        _context = context;
+    }
+
+    /// <summary>
+    /// Get all active priorities ordered by display order
+    /// </summary>
+    [HttpGet]
+    public async Task<ActionResult<List<PriorityDto>>> GetAll()
+    {
+        var priorities = await _context.Priorities
+            .Where(p => p.IsActive)
+            .OrderBy(p => p.DisplayOrder)
+            .Select(p => new PriorityDto(
+                p.Id,
+                p.Name,
+                p.Description,
+                p.DisplayOrder,
+                p.IsActive
+            ))
+            .ToListAsync();
+
+        return Ok(priorities);
+    }
+
+    /// <summary>
+    /// Get priority by ID
+    /// </summary>
+    [HttpGet("{id}")]
+    public async Task<ActionResult<PriorityDto>> GetById(int id)
+    {
+        var priority = await _context.Priorities.FindAsync(id);
+
+        if (priority == null)
+            return NotFound();
+
+        return Ok(new PriorityDto(
+            priority.Id,
+            priority.Name,
+            priority.Description,
+            priority.DisplayOrder,
+            priority.IsActive
+        ));
+    }
+}

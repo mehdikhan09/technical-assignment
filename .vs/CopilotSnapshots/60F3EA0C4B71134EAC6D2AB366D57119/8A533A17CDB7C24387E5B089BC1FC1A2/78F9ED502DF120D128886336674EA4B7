@@ -1,0 +1,387 @@
+﻿@page "/dashboard"
+@rendermode InteractiveServer
+@inject ApiService Api
+@inject NavigationManager Nav
+
+<PageTitle>Dashboard - Stock Replenishment</PageTitle>
+
+<div class="dashboard-header fade-in">
+    <MudText Typo="Typo.h3" Class="dashboard-title">📊 Stock Replenishment Dashboard</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mt-2">
+        Real-time overview of all replenishment requests and their statuses
+    </MudText>
+</div>
+
+@if (_loading)
+{
+    <div class="loading-container">
+        <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Large" />
+    </div>
+}
+else if (_allRequests is not null)
+{
+    <!-- Summary Cards -->
+    <MudGrid Class="mb-6 fade-in">
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="stat-card pa-4" Elevation="2">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <div class="stat-card-value">@_totalRequests</div>
+                        <div class="stat-card-label">Total Requests</div>
+                    </div>
+                    <MudIcon Icon="@Icons.Material.Filled.Assignment" Size="Size.Large" 
+                             Color="Color.Primary" Class="stat-card-icon" />
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="stat-card info pa-4" Elevation="2">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <div class="stat-card-value">@_submittedCount</div>
+                        <div class="stat-card-label">Pending Review</div>
+                    </div>
+                    <MudIcon Icon="@Icons.Material.Filled.HourglassEmpty" Size="Size.Large" 
+                             Color="Color.Info" Class="stat-card-icon" />
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="stat-card success pa-4" Elevation="2">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <div class="stat-card-value">@_approvedCount</div>
+                        <div class="stat-card-label">Approved</div>
+                    </div>
+                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Large" 
+                             Color="Color.Success" Class="stat-card-icon" />
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="stat-card pa-4" Elevation="2">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <div class="stat-card-value">@_fulfilledCount</div>
+                        <div class="stat-card-label">Fulfilled</div>
+                    </div>
+                    <MudIcon Icon="@Icons.Material.Filled.Done" Size="Size.Large" 
+                             Color="Color.Secondary" Class="stat-card-icon" />
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <!-- Priority Distribution -->
+    <MudGrid Class="mb-6 dashboard-section">
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4" Elevation="2">
+                <div class="dashboard-section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.PriorityHigh" />
+                    <MudText Typo="Typo.h6">Priority Distribution</MudText>
+                </div>
+                <MudGrid>
+                    <MudItem xs="4">
+                        <MudText Typo="Typo.h5" Color="Color.Error">@_urgentCount</MudText>
+                        <MudText Typo="Typo.body2">Urgent</MudText>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudText Typo="Typo.h5" Color="Color.Warning">@_normalCount</MudText>
+                        <MudText Typo="Typo.body2">Normal</MudText>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudText Typo="Typo.h5" Color="Color.Success">@_lowCount</MudText>
+                        <MudText Typo="Typo.body2">Low</MudText>
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4" Elevation="2">
+                <div class="dashboard-section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.Inventory" />
+                    <MudText Typo="Typo.h6">Stock Check Status</MudText>
+                </div>
+                <MudGrid Class="mt-3">
+                    <MudItem xs="4">
+                        <div class="text-center">
+                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Large" />
+                            <MudText Typo="Typo.h4" Color="Color.Success" Class="mt-2">@_stockCheckPassedCount</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Passed</MudText>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <div class="text-center">
+                            <MudIcon Icon="@Icons.Material.Filled.Cancel" Color="Color.Error" Size="Size.Large" />
+                            <MudText Typo="Typo.h4" Color="Color.Error" Class="mt-2">@_stockCheckFailedCount</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Failed</MudText>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <div class="text-center">
+                            <MudIcon Icon="@Icons.Material.Filled.Schedule" Color="Color.Info" Size="Size.Large" />
+                            <MudText Typo="Typo.h4" Color="Color.Info" Class="mt-2">@_stockCheckPendingCount</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Pending</MudText>
+                        </div>
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <!-- Recent Requests -->
+    <div class="dashboard-section">
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+                <div class="dashboard-section-title">
+                    <MudIcon Icon="@Icons.Material.Filled.History" />
+                    <MudText Typo="Typo.h6">Recent Requests</MudText>
+                </div>
+                <MudSpacer />
+                <MudButton Variant="Variant.Text" Color="Color.Primary" 
+                           Href="/requests" EndIcon="@Icons.Material.Filled.ArrowForward">
+                    View All
+                </MudButton>
+            </MudStack>
+
+            <MudTable Items="_recentRequests" Hover="true" Dense="true" T="RequestSummaryDto"
+                      OnRowClick="@(args => Nav.NavigateTo($"/requests/{args.Item.Id}"))" 
+                      Class="elevation-1">
+                <HeaderContent>
+                    <MudTh>Request #</MudTh>
+                    <MudTh>Status</MudTh>
+                    <MudTh>Priority</MudTh>
+                    <MudTh>Location</MudTh>
+                    <MudTh>Created By</MudTh>
+                    <MudTh>Created</MudTh>
+                    <MudTh>Items</MudTh>
+                    <MudTh>Stock Check</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Request #"><strong>@context.RequestNumber</strong></MudTd>
+                    <MudTd DataLabel="Status">
+                        <MudChip T="string" Color="@StatusColor(context.Status)" Size="Size.Small">
+                            @context.Status
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Priority">
+                        <MudChip T="string" Color="@PriorityColor(context.Priority)" Size="Size.Small">
+                            @context.Priority
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Location">@context.LocationCode</MudTd>
+                    <MudTd DataLabel="Created By">@context.CreatedBy</MudTd>
+                <MudTd DataLabel="Created">@context.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm")</MudTd>
+                <MudTd DataLabel="Items">@context.LineItemCount</MudTd>
+                <MudTd DataLabel="Stock Check">@StockCheckLabel(context.StockCheckPassed)</MudTd>
+            </RowTemplate>
+                </MudTable>
+            </MudPaper>
+        </div>
+
+        <!-- Requests by Status -->
+    <MudGrid Class="mb-4">
+        @if (_draftRequests.Any())
+        {
+            <MudItem xs="12" md="6">
+                <MudPaper Class="pa-4" Elevation="2">
+                    <MudText Typo="Typo.h6" Class="mb-3">
+                        <MudIcon Icon="@Icons.Material.Filled.Edit" Size="Size.Small" /> 
+                        Draft Requests (@_draftRequests.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var req in _draftRequests.Take(5))
+                        {
+                            <MudListItem T="string" OnClick="@(() => Nav.NavigateTo($"/requests/{req.Id}"))">
+                                <div class="d-flex justify-space-between align-center">
+                                    <div>
+                                        <MudText Typo="Typo.body2"><b>@req.RequestNumber</b> - @req.LocationCode</MudText>
+                                        <MudText Typo="Typo.caption">@req.CreatedBy • @req.LineItemCount items</MudText>
+                                    </div>
+                                    <MudChip T="string" Color="@PriorityColor(req.Priority)" Size="Size.Small">
+                                        @req.Priority
+                                    </MudChip>
+                                </div>
+                            </MudListItem>
+                            <MudDivider />
+                        }
+                    </MudList>
+                </MudPaper>
+            </MudItem>
+        }
+
+        @if (_submittedRequests.Any())
+        {
+            <MudItem xs="12" md="6">
+                <MudPaper Class="pa-4" Elevation="2">
+                    <MudText Typo="Typo.h6" Class="mb-3">
+                        <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" /> 
+                        Pending Review (@_submittedRequests.Count)
+                    </MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var req in _submittedRequests.Take(5))
+                        {
+                            <MudListItem T="string" OnClick="@(() => Nav.NavigateTo($"/requests/{req.Id}"))">
+                                <div class="d-flex justify-space-between align-center">
+                                    <div>
+                                        <MudText Typo="Typo.body2"><b>@req.RequestNumber</b> - @req.LocationCode</MudText>
+                                        <MudText Typo="Typo.caption">
+                                            @req.CreatedBy • @StockCheckLabel(req.StockCheckPassed)
+                                        </MudText>
+                                    </div>
+                                    <MudChip T="string" Color="@PriorityColor(req.Priority)" Size="Size.Small">
+                                        @req.Priority
+                                    </MudChip>
+                                </div>
+                            </MudListItem>
+                            <MudDivider />
+                        }
+                    </MudList>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+
+    <!-- Quick Actions -->
+    <div class="dashboard-section">
+        <MudPaper Class="pa-4" Elevation="2">
+            <div class="dashboard-section-title mb-3">
+                <MudIcon Icon="@Icons.Material.Filled.Bolt" />
+                <MudText Typo="Typo.h6">Quick Actions</MudText>
+            </div>
+            <div class="quick-actions">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" 
+                           StartIcon="@Icons.Material.Filled.Add" Href="/requests/create"
+                           Class="quick-action-btn" Size="Size.Large">
+                    Create New Request
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" 
+                           StartIcon="@Icons.Material.Filled.List" Href="/requests"
+                           Class="quick-action-btn" Size="Size.Large">
+                    View All Requests
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Info" 
+                           StartIcon="@Icons.Material.Filled.FilterList" 
+                           Href="/requests?status=Submitted"
+                           Class="quick-action-btn" Size="Size.Large">
+                    Review Pending
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Success" 
+                           StartIcon="@Icons.Material.Filled.CheckCircle" 
+                           Href="/requests?status=Approved"
+                           Class="quick-action-btn" Size="Size.Large">
+                    View Approved
+                </MudButton>
+            </div>
+        </MudPaper>
+    </div>
+}
+
+@code {
+    private List<RequestSummaryDto> _allRequests = new();
+    private List<RequestSummaryDto> _recentRequests = new();
+    private List<RequestSummaryDto> _draftRequests = new();
+    private List<RequestSummaryDto> _submittedRequests = new();
+    private bool _loading = true;
+
+    // Statistics
+    private int _totalRequests;
+    private int _submittedCount;
+    private int _approvedCount;
+    private int _fulfilledCount;
+    private int _urgentCount;
+    private int _normalCount;
+    private int _lowCount;
+    private int _stockCheckPassedCount;
+    private int _stockCheckFailedCount;
+    private int _stockCheckPendingCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardDataAsync();
+    }
+
+    private async Task LoadDashboardDataAsync()
+    {
+        _loading = true;
+
+        try
+        {
+            // Fetch all requests (using a large page size to get all)
+            var result = await Api.GetRequestsAsync(null, null, null, page: 1, pageSize: 100);
+
+            if (result is not null)
+            {
+                _allRequests = result.Items;
+
+                // Calculate statistics
+                _totalRequests = _allRequests.Count;
+                _submittedCount = _allRequests.Count(r => r.Status == "Submitted");
+                _approvedCount = _allRequests.Count(r => r.Status == "Approved");
+                _fulfilledCount = _allRequests.Count(r => r.Status == "Fulfilled");
+
+                _urgentCount = _allRequests.Count(r => r.Priority == "Urgent");
+                _normalCount = _allRequests.Count(r => r.Priority == "Normal");
+                _lowCount = _allRequests.Count(r => r.Priority == "Low");
+
+                _stockCheckPassedCount = _allRequests.Count(r => r.StockCheckPassed == true);
+                _stockCheckFailedCount = _allRequests.Count(r => r.StockCheckPassed == false);
+                _stockCheckPendingCount = _allRequests.Count(r => r.StockCheckPassed == null && r.Status != "Draft");
+
+                // Get recent requests (last 10)
+                _recentRequests = _allRequests
+                    .OrderByDescending(r => r.CreatedAt)
+                    .Take(10)
+                    .ToList();
+
+                // Get requests by status
+                _draftRequests = _allRequests
+                    .Where(r => r.Status == "Draft")
+                    .OrderByDescending(r => r.CreatedAt)
+                    .ToList();
+
+                _submittedRequests = _allRequests
+                    .Where(r => r.Status == "Submitted")
+                    .OrderByDescending(r => r.CreatedAt)
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading dashboard: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static Color StatusColor(string status) => status switch
+    {
+        "Draft"     => Color.Default,
+        "Submitted" => Color.Info,
+        "Approved"  => Color.Success,
+        "Rejected"  => Color.Error,
+        "Fulfilled" => Color.Secondary,
+        _           => Color.Default
+    };
+
+    private static Color PriorityColor(string priority) => priority switch
+    {
+        "Urgent" => Color.Error,
+        "Normal" => Color.Warning,
+        "Low"    => Color.Success,
+        _        => Color.Default
+    };
+
+    private static string StockCheckLabel(bool? passed) => passed switch
+    {
+        true  => "✅ Passed",
+        false => "❌ Failed",
+        null  => "⏳ Pending"
+    };
+}

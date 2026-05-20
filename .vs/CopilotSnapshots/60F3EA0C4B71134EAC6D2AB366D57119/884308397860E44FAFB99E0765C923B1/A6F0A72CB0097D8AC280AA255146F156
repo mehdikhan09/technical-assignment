@@ -1,0 +1,61 @@
+﻿@page "/test-priorities"
+@rendermode InteractiveServer
+@inject ApiService Api
+
+<h3>Priority Test Page</h3>
+
+<p>Priorities Count: @_priorities.Count</p>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else if (_priorities.Any())
+{
+    <h4>Priorities from API:</h4>
+    <ul>
+        @foreach (var p in _priorities)
+        {
+            <li>@p.Id - @p.Name - @p.Description</li>
+        }
+    </ul>
+
+    <h4>Test Dropdown (Plain HTML):</h4>
+    <select @bind="selectedPriority">
+        @foreach (var p in _priorities)
+        {
+            <option value="@p.Name">@p.Name</option>
+        }
+    </select>
+    <p>Selected: @selectedPriority</p>
+}
+else
+{
+    <p style="color: red;">No priorities loaded!</p>
+}
+
+@code {
+    private List<PriorityDto> _priorities = new();
+    private bool _loading = true;
+    private string selectedPriority = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _priorities = await Api.GetPrioritiesAsync();
+            if (_priorities.Any())
+            {
+                selectedPriority = _priorities.First().Name;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading priorities: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

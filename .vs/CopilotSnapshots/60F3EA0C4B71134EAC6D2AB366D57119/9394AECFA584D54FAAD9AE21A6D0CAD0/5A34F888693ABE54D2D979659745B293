@@ -1,0 +1,282 @@
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using StockReplenishment.Api.Data;
+using StockReplenishment.Api.DTOs;
+using StockReplenishment.Api.Services;
+using StockReplenishment.Core.Enums;
+using StockReplenishment.Core.Models;
+
+namespace StockReplenishment.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class RequestsController : ControllerBase
+{
+    private readonly AppDbContext _db;
+    private readonly IStockCheckService _stockCheckService;
+
+    public RequestsController(AppDbContext db, IStockCheckService stockCheckService)
+    {
+        _db = db;
+        _stockCheckService = stockCheckService;
+    }
+
+    // ── GET api/requests ──────────────────────────────────────────
+    // Supports filtering by status, priority, locationId
+    // Supports pagination via page + pageSize
+    [HttpGet]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] string? status,
+        [FromQuery] string? priority,
+        [FromQuery] int? locationId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 10;
+
+        var query = _db.Requests
+            .Include(r => r.StockLocation)
+            .Include(r => r.LineItems)
+            .AsQueryable();
+
+        // Filters
+        if (!string.IsNullOrWhiteSpace(status) &&
+            Enum.TryParse<RequestStatus>(status, true, out var parsedStatus))
+            query = query.Where(r => r.Status == parsedStatus);
+
+        if (!string.IsNullOrWhiteSpace(priority) &&
+            Enum.TryParse<RequestPriority>(priority, true, out var parsedPriority))
+            query = query.Where(r => r.Priority == parsedPriority);
+
+        if (locationId.HasValue)
+            query = query.Where(r => r.StockLocationId == locationId.Value);
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(r => new RequestSummaryDto
+            {
+                Id              = r.Id,
+                RequestNumber   = r.RequestNumber,
+                Status          = r.Status.ToString(),
+                Priority        = r.Priority.ToString(),
+                LocationCode    = r.StockLocation.Code,
+                CreatedBy       = r.CreatedBy,
+                CreatedAt       = r.CreatedAt,
+                LineItemCount   = r.LineItems.Count,
+                StockCheckPassed = r.StockCheckPassed
+            })
+            .ToListAsync();
+
+        return Ok(new PagedResult<RequestSummaryDto>
+        {
+            Items      = items,
+            TotalCount = totalCount,
+            Page       = page,
+            PageSize   = pageSize
+        });
+    }
+
+    // ── GET api/requests/{id} ─────────────────────────────────────
+    [HttpGet("{id:int}")]
+    public async Task<IActionResult> GetById(int id)
+    {
+        var request = await _db.Requests
+            .Include(r => r.StockLocation)
+            .Include(r => r.LineItems)
+            .FirstOrDefaultAsync(r => r.Id == id);
+
+        if (request is null)
+            return NotFound(new { message = $"Request {id} not found." });
+
+        return Ok(MapToDetail(request));
+    }
+
+    // ── POST api/requests ─────────────────────────────────────────
+    [HttpPost]
+    public async Task<IActionResult> Create([FromBody] CreateRequestDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        // Validate location exists
+        var locationExists = await _db.StockLocations.AnyAsync(l => l.Id == dto.StockLocationId);
+        if (!locationExists)
+            return BadRequest(new { message = "Invalid StockLocationId." });
+
+        // Validate priority value
+        if (!Enum.TryParse<RequestPriority>(dto.Priority, true, out var priority))
+            return BadRequest(new { message = $"Invalid priority '{dto.Priority}'. Use Low, Normal, or Urgent." });
+
+        // Generate request number
+        var count = await _db.Requests.CountAsync();
+        var requestNumber = $"REQ-{(count + 1):D4}";
+
+        var request = new ReplenishmentRequest
+        {
+            RequestNumber   = requestNumber,
+            Status          = RequestStatus.Draft,
+            Priority        = priority,
+            StockLocationId = dto.StockLocationId,
+            CreatedBy       = dto.CreatedBy,
+            CreatedAt       = DateTime.UtcNow,
+            Notes           = dto.Notes,
+            LineItems       = dto.LineItems.Select(li => new RequestLineItem
+            {
+                ArticleNumber     = li.ArticleNumber,
+                Description       = li.Description,
+                RequestedQuantity = li.RequestedQuantity
+            }).ToList()
+        };
+
+        _db.Requests.Add(request);
+        await _db.SaveChangesAsync();
+
+        return CreatedAtAction(nameof(GetById), new { id = request.Id }, MapToDetail(request));
+    }
+
+    // ── POST api/requests/{id}/submit ─────────────────────────────
+    [HttpPost("{id:int}/submit")]
+    public async Task<IActionResult> Submit(int id)
+    {
+        var request = await _db.Requests
+            .Include(r => r.LineItems)
+            .FirstOrDefaultAsync(r => r.Id == id);
+
+        if (request is null)
+            return NotFound(new { message = $"Request {id} not found." });
+
+        if (request.Status != RequestStatus.Draft)
+            return Conflict(new { message = $"Only Draft requests can be submitted. Current status: {request.Status}" });
+
+        if (!request.LineItems.Any())
+            return BadRequest(new { message = "Cannot submit a request with no line items." });
+
+        // Transition to Submitted, mark stock check as pending
+        request.Status           = RequestStatus.Submitted;
+        request.SubmittedAt      = DateTime.UtcNow;
+        request.StockCheckPassed = null;
+        request.StockCheckMessage = "Stock check in progress...";
+
+        await _db.SaveChangesAsync();
+
+        // Fire-and-forget — does NOT block the API response
+        _ = _stockCheckService.RunCheckAsync(request.Id);
+
+        return Ok(new { message = "Request submitted. Stock check is running in the background.", requestId = request.Id });
+    }
+
+    // ── POST api/requests/{id}/approve ────────────────────────────
+    [HttpPost("{id:int}/approve")]
+    public async Task<IActionResult> Approve(int id, [FromQuery] string reviewedBy = "supervisor")
+    {
+        var request = await _db.Requests.FindAsync(id);
+
+        if (request is null)
+            return NotFound(new { message = $"Request {id} not found." });
+
+        if (request.Status != RequestStatus.Submitted)
+            return Conflict(new { message = $"Only Submitted requests can be approved. Current status: {request.Status}" });
+
+        request.Status     = RequestStatus.Approved;
+        request.ReviewedAt = DateTime.UtcNow;
+        request.ReviewedBy = reviewedBy;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new { message = "Request approved." });
+    }
+
+    // ── POST api/requests/{id}/reject ─────────────────────────────
+    [HttpPost("{id:int}/reject")]
+    public async Task<IActionResult> Reject(int id, [FromBody] RejectRequestDto dto,
+        [FromQuery] string reviewedBy = "supervisor")
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        var request = await _db.Requests.FindAsync(id);
+
+        if (request is null)
+            return NotFound(new { message = $"Request {id} not found." });
+
+        if (request.Status != RequestStatus.Submitted)
+            return Conflict(new { message = $"Only Submitted requests can be rejected. Current status: {request.Status}" });
+
+        request.Status          = RequestStatus.Rejected;
+        request.ReviewedAt      = DateTime.UtcNow;
+        request.ReviewedBy      = reviewedBy;
+        request.RejectionReason = dto.Reason;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new { message = "Request rejected." });
+    }
+
+    // ── POST api/requests/{id}/fulfill ────────────────────────────
+    [HttpPost("{id:int}/fulfill")]
+    public async Task<IActionResult> Fulfill(int id, [FromBody] FulfillRequestDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        var request = await _db.Requests
+            .Include(r => r.LineItems)
+            .FirstOrDefaultAsync(r => r.Id == id);
+
+        if (request is null)
+            return NotFound(new { message = $"Request {id} not found." });
+
+        if (request.Status != RequestStatus.Approved)
+            return Conflict(new { message = $"Only Approved requests can be fulfilled. Current status: {request.Status}" });
+
+        // Update fulfilled quantities per line item
+        foreach (var itemDto in dto.LineItems)
+        {
+            var lineItem = request.LineItems.FirstOrDefault(li => li.Id == itemDto.LineItemId);
+            if (lineItem is not null)
+                lineItem.FulfilledQuantity = itemDto.FulfilledQuantity;
+        }
+
+        request.Status      = RequestStatus.Fulfilled;
+        request.FulfilledAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new { message = "Request marked as fulfilled." });
+    }
+
+    // ── Private helper ────────────────────────────────────────────
+    private static RequestDetailDto MapToDetail(ReplenishmentRequest r) => new()
+    {
+        Id                  = r.Id,
+        RequestNumber       = r.RequestNumber,
+        Status              = r.Status.ToString(),
+        Priority            = r.Priority.ToString(),
+        StockLocationId     = r.StockLocationId,
+        LocationCode        = r.StockLocation?.Code ?? string.Empty,
+        LocationDescription = r.StockLocation?.Description ?? string.Empty,
+        CreatedBy           = r.CreatedBy,
+        CreatedAt           = r.CreatedAt,
+        SubmittedAt         = r.SubmittedAt,
+        ReviewedAt          = r.ReviewedAt,
+        FulfilledAt         = r.FulfilledAt,
+        ReviewedBy          = r.ReviewedBy,
+        RejectionReason     = r.RejectionReason,
+        Notes               = r.Notes,
+        StockCheckPassed    = r.StockCheckPassed,
+        StockCheckMessage   = r.StockCheckMessage,
+        LineItems           = r.LineItems.Select(li => new LineItemDto
+        {
+            Id                = li.Id,
+            ArticleNumber     = li.ArticleNumber,
+            Description       = li.Description,
+            RequestedQuantity = li.RequestedQuantity,
+            FulfilledQuantity = li.FulfilledQuantity
+        }).ToList()
+    };
+}

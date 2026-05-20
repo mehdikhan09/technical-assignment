@@ -1,0 +1,37 @@
+﻿using Microsoft.EntityFrameworkCore;
+using StockReplenishment.Api.Data;
+using StockReplenishment.Api.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// ── Register in-memory database ──
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseInMemoryDatabase("StockReplenishmentDb"));
+
+// ── Register services ──
+builder.Services.AddScoped<IStockCheckService, StockCheckService>();
+
+var app = builder.Build();
+
+// ── Seed data on startup ──
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    SeedData.Initialize(context);
+}
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();

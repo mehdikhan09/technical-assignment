@@ -1,0 +1,29 @@
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using StockReplenishment.Api.Data;
+
+namespace StockReplenishment.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class StockLocationsController : ControllerBase
+{
+    private readonly AppDbContext _db;
+
+    public StockLocationsController(AppDbContext db)
+    {
+        _db = db;
+    }
+
+    // GET api/stocklocations
+    [HttpGet]
+    public async Task<IActionResult> GetAll()
+    {
+        var locations = await _db.StockLocations
+            .OrderBy(l => l.Code)
+            .Select(l => new { l.Id, l.Code, l.Description })
+            .ToListAsync();
+
+        return Ok(locations);
+    }
+}

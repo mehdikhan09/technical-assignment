@@ -1,0 +1,19 @@
+﻿@page "/"
+@inject NavigationManager Nav
+
+<PageTitle>METS Stock Replenishment</PageTitle>
+
+<MudText Typo="Typo.h3" Class="mb-4">METS Stock Replenishment System</MudText>
+<MudText Typo="Typo.body1" Class="mb-6">
+    Manage manufacturing stock replenishment requests with automated stock availability checking.
+</MudText>
+
+<MudButton Variant="Variant.Filled" Color="Color.Primary" 
+           Size="Size.Large" Href="/requests" StartIcon="@Icons.Material.Filled.List">
+    View All Requests
+</MudButton>
+
+<MudButton Variant="Variant.Outlined" Color="Color.Primary" 
+           Size="Size.Large" Href="/requests/create" StartIcon="@Icons.Material.Filled.Add" Class="ml-4">
+    Create New Request
+</MudButton>

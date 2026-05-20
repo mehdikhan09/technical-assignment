@@ -1,0 +1,161 @@
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using NUnit.Framework;
+using StockReplenishment.Api.Data;
+using StockReplenishment.Api.Services;
+using StockReplenishment.Core.Enums;
+using StockReplenishment.Tests.Helpers;
+
+namespace StockReplenishment.Tests.Services;
+
+[TestFixture]
+public class StockCheckServiceTests
+{
+    private AppDbContext          _db      = null!;
+    private IServiceScopeFactory  _factory = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        // Build a minimal service provider so the service
+        // can resolve a fresh DbContext scope internally
+        var services = new ServiceCollection();
+
+        // Use a unique in-memory database name for isolation
+        var dbName = Guid.NewGuid().ToString();
+        services.AddEntityFrameworkInMemoryDatabase();
+        services.AddDbContext<AppDbContext>(opt =>
+            opt.UseInMemoryDatabase(dbName));
+
+        var sp = services.BuildServiceProvider();
+
+        // Seed the database
+        var seedCtx = sp.GetRequiredService<AppDbContext>();
+        SeedData.Initialize(seedCtx);
+
+        _db      = seedCtx;
+        _factory = sp.GetRequiredService<IServiceScopeFactory>();
+    }
+
+    [Test]
+    public async Task RunCheckAsync_ExistingRequest_SetsStockCheckResult()
+    {
+        var service = new StockCheckService(
+            _factory,
+            NullLogger<StockCheckService>.Instance);
+
+        // Create a fresh Submitted request with null stock check
+        using (var scope = _factory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var newRequest = new ReplenishmentRequest
+            {
+                Id = 99,
+                RequestNumber = "REQ-TEST",
+                Status = RequestStatus.Submitted,
+                Priority = RequestPriority.Normal,
+                StockLocationId = 1,
+                CreatedBy = "test.user",
+                CreatedAt = DateTime.UtcNow,
+                SubmittedAt = DateTime.UtcNow,
+                StockCheckPassed = null,  // null = pending check
+                StockCheckMessage = null,
+                LineItems = new List<RequestLineItem>
+                {
+                    new() { ArticleNumber = "ART-TEST", Description = "Test Item", RequestedQuantity = 10 }
+                }
+            };
+            db.Requests.Add(newRequest);
+            db.SaveChanges();
+        }
+
+        // Run the check and wait for it to complete (it has a 3-8 second delay)
+        await service.RunCheckAsync(99);
+
+        // Re-fetch after the check
+        using (var scope = _factory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var updated = db.Requests.Find(99);
+
+            Assert.That(updated!.StockCheckPassed, Is.Not.Null,
+                "StockCheckPassed should be set after check completes.");
+            Assert.That(updated.StockCheckMessage, Is.Not.Null.And.Not.Empty,
+                "StockCheckMessage should be populated.");
+        }
+    }
+
+    [Test]
+    public async Task RunCheckAsync_NonExistentRequest_DoesNotThrow()
+    {
+        var service = new StockCheckService(
+            _factory,
+            NullLogger<StockCheckService>.Instance);
+
+        // Should handle gracefully — no exception
+        Assert.DoesNotThrowAsync(() => service.RunCheckAsync(99999));
+        await Task.CompletedTask;
+    }
+
+    [Test]
+    public async Task RunCheckAsync_WhenPassed_SetsPassedTrue()
+    {
+        // Run many times — at least one should pass (80% rate)
+        // We run 10 iterations to ensure statistical likelihood
+        var anyPassed = false;
+
+        for (var i = 0; i < 10 && !anyPassed; i++)
+        {
+            var services = new ServiceCollection();
+            var dbName   = Guid.NewGuid().ToString();
+            services.AddEntityFrameworkInMemoryDatabase();
+            services.AddDbContext<AppDbContext>(opt =>
+                opt.UseInMemoryDatabase(dbName));
+            var sp       = services.BuildServiceProvider();
+            var seedCtx  = sp.GetRequiredService<AppDbContext>();
+
+            // Seed basic location
+            var location = new StockLocation { Id = 1, Code = "TEST", Description = "Test Location" };
+            seedCtx.StockLocations.Add(location);
+
+            // Create a fresh request with null stock check
+            var testRequest = new ReplenishmentRequest
+            {
+                Id = 100 + i,
+                RequestNumber = $"REQ-TEST-{i}",
+                Status = RequestStatus.Submitted,
+                Priority = RequestPriority.Normal,
+                StockLocationId = 1,
+                CreatedBy = "test.user",
+                CreatedAt = DateTime.UtcNow,
+                SubmittedAt = DateTime.UtcNow,
+                StockCheckPassed = null,
+                StockCheckMessage = null,
+                LineItems = new List<RequestLineItem>
+                {
+                    new() { ArticleNumber = "ART-TEST", Description = "Test Item", RequestedQuantity = 10 }
+                }
+            };
+            seedCtx.Requests.Add(testRequest);
+            seedCtx.SaveChanges();
+
+            var factory = sp.GetRequiredService<IServiceScopeFactory>();
+            var service = new StockCheckService(
+                factory, NullLogger<StockCheckService>.Instance);
+
+            // Wait for the async check to complete
+            await service.RunCheckAsync(testRequest.Id);
+
+            using var scope = factory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var updated = db.Requests.Find(testRequest.Id);
+
+            if (updated?.StockCheckPassed == true)
+                anyPassed = true;
+        }
+
+        Assert.That(anyPassed, Is.True,
+            "Expected at least one passing stock check in 10 attempts.");
+    }
+}

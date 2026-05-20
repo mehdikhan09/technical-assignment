@@ -1,0 +1,11 @@
+﻿namespace StockReplenishment.Api.Services;
+
+public class StockCheckService : IStockCheckService
+{
+    public Task RunCheckAsync(int requestId)
+    {
+        // Stub implementation - will be implemented in a later step
+        // This simulates a background stock check process
+        return Task.CompletedTask;
+    }
+}

@@ -1,0 +1,149 @@
+﻿@page "/requests/create"
+@rendermode InteractiveServer
+@inject ApiService Api
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h5" Class="mb-4">New Replenishment Request</MudText>
+
+<MudPaper Class="pa-6" MaxWidth="700px">
+    <MudGrid>
+        <MudItem xs="12" sm="6">
+            <MudSelect T="int" Label="Stock Location" @bind-Value="_model.StockLocationId" Required="true">
+                @foreach (var l in _locations)
+                {
+                    <MudSelectItem Value="@l.Id">@l.Code — @l.Description</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudSelect T="string" 
+                       Label="Priority" 
+                       @bind-Value="_model.Priority" 
+                       Required="true"
+                       Variant="Variant.Outlined">
+                @if (_priorities != null && _priorities.Any())
+                {
+                    @foreach (var p in _priorities)
+                    {
+                        <MudSelectItem T="string" Value="@p.Name">
+                            @p.Name
+                            @if (!string.IsNullOrEmpty(p.Description))
+                            {
+                                <text> - @p.Description</text>
+                            }
+                        </MudSelectItem>
+                    }
+                }
+                else
+                {
+                    <MudSelectItem T="string" Value="Normal" Disabled="true">Loading...</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudTextField Label="Your Username" @bind-Value="_model.CreatedBy" Required="true" />
+        </MudItem>
+        <MudItem xs="12">
+            <MudTextField Label="Notes (optional)" @bind-Value="_model.Notes" Lines="2" />
+        </MudItem>
+    </MudGrid>
+
+    <MudDivider Class="my-4" />
+    <MudText Typo="Typo.h6" Class="mb-2">Line Items</MudText>
+
+    @foreach (var (item, index) in _model.LineItems.Select((x, i) => (x, i)))
+    {
+        <MudGrid Class="mb-2">
+            <MudItem xs="12" sm="3">
+                <MudTextField Label="Article Number" @bind-Value="item.ArticleNumber" Required="true" />
+            </MudItem>
+            <MudItem xs="12" sm="5">
+                <MudTextField Label="Description" @bind-Value="item.Description" Required="true" />
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudNumericField T="int" Label="Qty" @bind-Value="item.RequestedQuantity" Min="1" Required="true" />
+            </MudItem>
+            <MudItem xs="12" sm="1" Class="d-flex align-center">
+                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                               Color="Color.Error" Size="Size.Small"
+                               OnClick="() => RemoveItem(index)"
+                               Disabled="_model.LineItems.Count <= 1" />
+            </MudItem>
+        </MudGrid>
+    }
+
+    <MudButton StartIcon="@Icons.Material.Filled.Add"
+               Variant="Variant.Text" Color="Color.Primary"
+               OnClick="AddItem" Class="mb-4">
+        Add Line Item
+    </MudButton>
+
+    <MudDivider Class="mb-4" />
+
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   OnClick="SaveAsync" Disabled="_saving">
+            @(_saving ? "Saving..." : "Save as Draft")
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" Href="/requests">Cancel</MudButton>
+    </MudStack>
+</MudPaper>
+
+@code {
+    private CreateRequestModel _model = new()
+    {
+        Priority  = "Normal",
+        LineItems = new() { new CreateLineItemModel() }
+    };
+
+    private List<LocationDto> _locations = new();
+    private List<PriorityDto> _priorities = new();
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _locations = await Api.GetLocationsAsync();
+        _priorities = await Api.GetPrioritiesAsync();
+
+        if (_locations.Any())
+            _model.StockLocationId = _locations.First().Id;
+
+        if (_priorities.Any())
+            _model.Priority = _priorities.First(p => p.Name == "Normal").Name;
+    }
+
+    private void AddItem()    => _model.LineItems.Add(new CreateLineItemModel());
+    private void RemoveItem(int i) => _model.LineItems.RemoveAt(i);
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_model.CreatedBy))
+        {
+            Snackbar.Add("Please enter your username.", Severity.Warning);
+            return;
+        }
+        if (_model.LineItems.Any(li =>
+                string.IsNullOrWhiteSpace(li.ArticleNumber) ||
+                string.IsNullOrWhiteSpace(li.Description)   ||
+                li.RequestedQuantity < 1))
+        {
+            Snackbar.Add("Please fill in all line item fields.", Severity.Warning);
+            return;
+        }
+
+        _saving = true;
+        var (success, error) = await Api.CreateRequestAsync(_model);
+        _saving = false;
+
+        if (success)
+        {
+            Snackbar.Add("Request saved as Draft.", Severity.Success);
+            Nav.NavigateTo("/requests");
+        }
+        else
+        {
+            Snackbar.Add($"Error: {error}", Severity.Error);
+        }
+    }
+}

@@ -1,0 +1,139 @@
+﻿using System.Net.Http.Json;
+
+namespace StockReplenishment.Web.Services;
+
+// ── Response models (match API DTOs) ─────────────────────────────
+
+public record LocationDto(int Id, string Code, string Description);
+
+public record PriorityDto(int Id, string Name, string? Description, int DisplayOrder, bool IsActive);
+
+public record RequestSummaryDto(
+    int Id, string RequestNumber, string Status, string Priority,
+    string LocationCode, string CreatedBy, DateTime CreatedAt,
+    int LineItemCount, bool? StockCheckPassed);
+
+public record RequestDetailDto(
+    int Id, string RequestNumber, string Status, string Priority,
+    int StockLocationId, string LocationCode, string LocationDescription,
+    string CreatedBy, DateTime CreatedAt,
+    DateTime? SubmittedAt, DateTime? ReviewedAt, DateTime? FulfilledAt,
+    string? ReviewedBy, string? RejectionReason, string? Notes,
+    bool? StockCheckPassed, string? StockCheckMessage,
+    List<LineItemDto> LineItems);
+
+public record LineItemDto(
+    int Id, string ArticleNumber, string Description,
+    int RequestedQuantity, int? FulfilledQuantity);
+
+public record PagedResult<T>(
+    List<T> Items, int TotalCount, int Page, int PageSize, int TotalPages);
+
+// ── Request bodies ────────────────────────────────────────────────
+
+public class CreateRequestModel
+{
+    public string Priority { get; set; } = "Normal";
+    public int StockLocationId { get; set; }
+    public string CreatedBy { get; set; } = string.Empty;
+    public string? Notes { get; set; }
+    public List<CreateLineItemModel> LineItems { get; set; } = new();
+}
+
+public class CreateLineItemModel
+{
+    public string ArticleNumber { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public int RequestedQuantity { get; set; }
+}
+
+public class RejectModel { public string Reason { get; set; } = string.Empty; }
+
+public class FulfillModel
+{
+    public List<FulfillLineItemModel> LineItems { get; set; } = new();
+}
+
+public class FulfillLineItemModel
+{
+    public int LineItemId { get; set; }
+    public int FulfilledQuantity { get; set; }
+}
+
+// ── Service ───────────────────────────────────────────────────────
+
+public class ApiService
+{
+    private readonly HttpClient _http;
+
+    public ApiService(HttpClient http) => _http = http;
+
+    public async Task<List<LocationDto>> GetLocationsAsync()
+    {
+        var result = await _http.GetFromJsonAsync<List<LocationDto>>("api/stocklocations");
+        return result ?? new();
+    }
+
+    public async Task<List<PriorityDto>> GetPrioritiesAsync()
+    {
+        var result = await _http.GetFromJsonAsync<List<PriorityDto>>("api/priorities");
+        return result ?? new();
+    }
+
+    public async Task<PagedResult<RequestSummaryDto>?> GetRequestsAsync(
+        string? status = null, string? priority = null,
+        int? locationId = null, int page = 1, int pageSize = 10)
+    {
+        var query = $"api/requests?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrEmpty(status))   query += $"&status={status}";
+        if (!string.IsNullOrEmpty(priority)) query += $"&priority={priority}";
+        if (locationId.HasValue)             query += $"&locationId={locationId}";
+
+        return await _http.GetFromJsonAsync<PagedResult<RequestSummaryDto>>(query);
+    }
+
+    public async Task<RequestDetailDto?> GetRequestByIdAsync(int id) =>
+        await _http.GetFromJsonAsync<RequestDetailDto>($"api/requests/{id}");
+
+    public async Task<(bool Success, string? Error)> CreateRequestAsync(CreateRequestModel model)
+    {
+        var response = await _http.PostAsJsonAsync("api/requests", model);
+        return response.IsSuccessStatusCode
+            ? (true, null)
+            : (false, await response.Content.ReadAsStringAsync());
+    }
+
+    public async Task<(bool Success, string? Error)> SubmitAsync(int id)
+    {
+        var response = await _http.PostAsync($"api/requests/{id}/submit", null);
+        return response.IsSuccessStatusCode
+            ? (true, null)
+            : (false, await response.Content.ReadAsStringAsync());
+    }
+
+    public async Task<(bool Success, string? Error)> ApproveAsync(int id)
+    {
+        var response = await _http.PostAsync($"api/requests/{id}/approve?reviewedBy=supervisor", null);
+        return response.IsSuccessStatusCode
+            ? (true, null)
+            : (false, await response.Content.ReadAsStringAsync());
+    }
+
+    public async Task<(bool Success, string? Error)> RejectAsync(int id, string reason)
+    {
+        var response = await _http.PostAsJsonAsync(
+            $"api/requests/{id}/reject?reviewedBy=supervisor",
+            new RejectModel { Reason = reason });
+        return response.IsSuccessStatusCode
+            ? (true, null)
+            : (false, await response.Content.ReadAsStringAsync());
+    }
+
+    public async Task<(bool Success, string? Error)> FulfillAsync(int id, FulfillModel model)
+    {
+        var response = await _http.PostAsJsonAsync($"api/requests/{id}/fulfill", model);
+        return response.IsSuccessStatusCode
+            ? (true, null)
+            : (false, await response.Content.ReadAsStringAsync());
+    }
+}

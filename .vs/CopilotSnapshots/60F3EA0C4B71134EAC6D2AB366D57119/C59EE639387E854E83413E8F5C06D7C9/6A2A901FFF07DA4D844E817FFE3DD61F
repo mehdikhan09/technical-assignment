@@ -1,0 +1,82 @@
+﻿using Microsoft.EntityFrameworkCore;
+using StockReplenishment.Core.Models;
+
+namespace StockReplenishment.Api.Data;
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    public DbSet<ReplenishmentRequest> Requests => Set<ReplenishmentRequest>();
+    public DbSet<RequestLineItem> LineItems => Set<RequestLineItem>();
+    public DbSet<StockLocation> StockLocations => Set<StockLocation>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // ReplenishmentRequest config
+        modelBuilder.Entity<ReplenishmentRequest>(entity =>
+        {
+            entity.HasKey(r => r.Id);
+
+            entity.Property(r => r.RequestNumber)
+                  .IsRequired()
+                  .HasMaxLength(20);
+
+            entity.Property(r => r.CreatedBy)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+            entity.Property(r => r.RejectionReason)
+                  .HasMaxLength(500);
+
+            entity.Property(r => r.Notes)
+                  .HasMaxLength(1000);
+
+            entity.Property(r => r.Status)
+                  .HasConversion<string>();   // store as "Draft", "Submitted" etc.
+
+            entity.Property(r => r.Priority)
+                  .HasConversion<string>();
+
+            entity.HasOne(r => r.StockLocation)
+                  .WithMany(l => l.Requests)
+                  .HasForeignKey(r => r.StockLocationId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasMany(r => r.LineItems)
+                  .WithOne(li => li.Request)
+                  .HasForeignKey(li => li.ReplenishmentRequestId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // StockLocation config
+        modelBuilder.Entity<StockLocation>(entity =>
+        {
+            entity.HasKey(l => l.Id);
+
+            entity.Property(l => l.Code)
+                  .IsRequired()
+                  .HasMaxLength(20);
+
+            entity.Property(l => l.Description)
+                  .IsRequired()
+                  .HasMaxLength(200);
+        });
+
+        // RequestLineItem config
+        modelBuilder.Entity<RequestLineItem>(entity =>
+        {
+            entity.HasKey(li => li.Id);
+
+            entity.Property(li => li.ArticleNumber)
+                  .IsRequired()
+                  .HasMaxLength(50);
+
+            entity.Property(li => li.Description)
+                  .IsRequired()
+                  .HasMaxLength(200);
+        });
+    }
+}

@@ -1,0 +1,11 @@
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\bin\Release\net10.0\StockReplenishment.Core.deps.json
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\bin\Release\net10.0\StockReplenishment.Core.dll
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\bin\Release\net10.0\StockReplenishment.Core.pdb
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\obj\Release\net10.0\StockReplenishment.Core.GeneratedMSBuildEditorConfig.editorconfig
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\obj\Release\net10.0\StockReplenishment.Core.AssemblyInfoInputs.cache
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\obj\Release\net10.0\StockReplenishment.Core.AssemblyInfo.cs
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\obj\Release\net10.0\StockReplenishment.Core.csproj.CoreCompileInputs.cache
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\obj\Release\net10.0\StockReplenishment.Core.dll
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\obj\Release\net10.0\refint\StockReplenishment.Core.dll
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\obj\Release\net10.0\StockReplenishment.Core.pdb
+D:\Amala\HITACHI\Stock_Replenishment_Request_System\StockReplenishment.Core\obj\Release\net10.0\ref\StockReplenishment.Core.dll
